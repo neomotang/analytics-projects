@@ -1,0 +1,33 @@
+/* These steps where applied to the original data in the Coffee Sales file (Coffe_sales.xlsx) to create the FactSales table.
+    The source xlsx file was staged as "OriginalData", and all other fact and dimension tables reference this query where possible.
+*/
+
+let
+    Source = OriginalData,
+    #"Changed Data Types" = Table.TransformColumnTypes(Source,{{"date", type date}, {"cash_type", type text}, {"money", Currency.Type}, {"coffee_name", type text}, {"Time_of_Day", type text}, {"Weekday", type text}, {"Month_name", type text}, {"Weekdaysort", Int64.Type}, {"Monthsort", Int64.Type}, {"hour_of_day", Int64.Type}, {"card", type text}, {"datetime", type datetime}}),
+    #"Added Index" = Table.AddIndexColumn(#"Changed Data Types", "Index", 1, 1, Int64.Type),
+    #"Extracted CardID from card" = Table.AddColumn(#"Added Index", "CardID", each Text.End([card], 4), type text),
+    #"Replaced null CardID with zero" = Table.ReplaceValue(#"Extracted CardID from card",null,0,Replacer.ReplaceValue,{"CardID"}),
+    #"Changed CardID Data Type" = Table.TransformColumnTypes(#"Replaced null CardID with zero",{{"CardID", Int64.Type}}),
+    #"Added Conditional DrinkID Column" = Table.AddColumn(#"Changed CardID Data Type", "DrinkID", each if [coffee_name] = "Americano" then 1 else if [coffee_name] = "Americano with Milk" then 2 else if [coffee_name] = "Cappuccino" then 3 else if [coffee_name] = "Cocoa" then 4 else if [coffee_name] = "Cortado" then 5 else if [coffee_name] = "Espresso" then 6 else if [coffee_name] = "Hot Chocolate" then 7 else if [coffee_name] = "Latte" then 8 else 99),
+    #"Changed DrinkID Data Type" = Table.TransformColumnTypes(#"Added Conditional DrinkID Column",{{"DrinkID", Int64.Type}}),
+    //In the following step, "___FullPrice" are parameters that store the full price of each drink 
+    #"Added Custom Discount Column" = Table.AddColumn(#"Changed DrinkID Data Type", "Discount", each if [DrinkID] = 1 then [money]-AmericanoFullPrice else if [DrinkID] = 2 then [money]-AmericanoMilkFullPrice else if [DrinkID] = 3 then [money]-CappuccinoFullPrice else if [DrinkID] = 4 then [money]-CocoaFullPrice else if [DrinkID] = 5 then [money]-CortadoFullPrice else if [DrinkID] = 6 then [money]-EspressoFullPrice else if [DrinkID] = 7 then [money]-HotChocFullPrice else if [DrinkID] = 8 then [money]-LatteFullPrice else 99),
+    #"Changed Discount Data Type" = Table.TransformColumnTypes(#"Added Custom Discount Column",{{"Discount", Currency.Type}}),
+    #"Removed Columns" = Table.RemoveColumns(#"Changed Discount Data Type",{"datetime", "cash_type", "card", "coffee_name", "Time_of_Day", "Weekday", "Month_name", "Weekdaysort", "Monthsort"}),
+    #"Renamed Columns" = Table.RenameColumns(#"Removed Columns",{{"date", "Date"}, {"hour_of_day", "HourOfDay"}, {"money", "Revenue"}, {"Index", "TransactionID"}}),
+    #"Reordered Columns" = Table.ReorderColumns(#"Renamed Columns",{"TransactionID", "Date", "HourOfDay", "DrinkID", "CardID", "Revenue", "Discount"})
+
+    /* Notes on removed columns and associated dimension tables:
+    
+    datetime - considered redundant since "date" and "hour_of_day" also exist; plus "hour_of_day" can be stored as whole numbers thereby taking up less storage, and can perform the same function of classifying the time of day (Morning/Afternoon/Night)
+    cash_type - considered redundant since any "card" entry that is null is a cash payment and all others are card payments
+    card - moved to a dimension table (dimCards) with "CardID" as primary key
+    coffee_name - moved to a dimension table (dimDrinks) with "DrinkID" as primary key
+    Time_of_Day - moved to a dimension table (dimTimeOfDay) with "hour_of_day" as primary key
+    Weekday, Month_name, Weekdaysort, Monthsort - recreated from within Power BI using DAX (CALENDAR and other date/time functions) in a date dimension table (dimDate), with "date" as primary key
+
+    */
+
+in
+    #"Reordered Columns"
